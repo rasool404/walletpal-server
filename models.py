@@ -1,15 +1,17 @@
 from config import db
 
-class Contact(db.Model):
+class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    first_name = db.Column(db.String(80), unique=False, nullable=False)
-    last_name = db.Column(db.String(80), unique=False, nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
+    name = db.Column(db.String(80), nullable=False)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(80), unique=True, nullable=False)  # Ensure email is also unique
+    password = db.Column(db.String(200), nullable=False)
 
     def to_json(self):
         return {
             "id": self.id,
-            "firstName": self.first_name,
-            "lastName": self.last_name,
-            "email": self.email
+            "name": self.name,
+            "username": self.username,
+            "email": self.email,
+            "password": self.password 
         }

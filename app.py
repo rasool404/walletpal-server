@@ -1,66 +1,104 @@
-from flask import Flask, request, jsonify
-from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
-from werkzeug.security import generate_password_hash, check_password_hash
+from flask import request, jsonify, session
+from config import app, db
+from models import User
 
-app = Flask(__name__)
-
-# Configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://user:password@localhost/dbname'
-app.config['SECRET_KEY'] = 'your_secret_key'
-app.config['JWT_SECRET_KEY'] = 'your_jwt_secret_key'
-
-db = SQLAlchemy(app)
-jwt = JWTManager(app)
-
-# User Model
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    password = db.Column(db.String(200), nullable=False)
-
-# Create Database Tables
-@app.before_first_request
-def create_tables():
-    db.create_all()
-
-# Register Route
 @app.route('/register', methods=['POST'])
 def register():
-    data = request.get_json()
-    username = data.get('username')
-    password = generate_password_hash(data.get('password'))
-    
-    if User.query.filter_by(username=username).first():
-        return jsonify({"msg": "Username already exists"}), 400
+    try:
+        data = request.get_json()
 
-    new_user = User(username=username, password=password)
-    db.session.add(new_user)
-    db.session.commit()
-    
-    return jsonify({"msg": "User registered successfully"}), 201
+        if not data:
+            return jsonify(message="Invalid input"), 400
 
-# Login Route
+        name = data.get('name')
+        username = data.get('username')
+        email = data.get('email')
+        password = data.get('password')
+
+        if not name or not username or not email or not password:
+            return jsonify(message="Missing required fields"), 400
+
+        existing_user = User.query.filter((User.username == username) | (User.email == email)).first()
+        if existing_user:
+            return jsonify(message="User already exists"), 409
+
+
+        user = User(name=name, username=username, email=email, password=password)
+        
+        db.session.add(user)
+        db.session.commit()
+
+        return jsonify(message="User registered successfully"), 201
+    
+    except Exception as e:
+        print(f"Error registering user: {e}")
+        return jsonify(message="Internal server error"), 500
+
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
-    username = data.get('username')
+    email = data.get('email')
     password = data.get('password')
-    
-    user = User.query.filter_by(username=username).first()
-    if not user or not check_password_hash(user.password, password):
-        return jsonify({"msg": "Invalid credentials"}), 401
-    
-    access_token = create_access_token(identity=user.id)
-    return jsonify(access_token=access_token), 200
 
-# Protected Route
-@app.route('/protected', methods=['GET'])
-@jwt_required()
-def protected():
-    current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id)
-    return jsonify(logged_in_as=user.username), 200
+    user = User.query.filter_by(email=email, password=password).first()
+
+    if user:
+        session['user'] = user.id  # Store user ID in session
+        return jsonify(message="Login successful", user_id=user.id, name=user.name), 200
+    else:
+        return jsonify(message="Invalid credentials"), 401
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    session.pop('user', None)
+    return jsonify(message="Logged out successfully"), 200
+
+@app.route('/update', methods=['PUT'])
+def update_user():
+    if 'user' not in session:
+        return jsonify(message="User not logged in"), 401
+    
+    user_id = session['user']
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify(message="User not found"), 404
+
+    data = request.get_json()
+    user.name = data.get('name', user.name)
+    user.username = data.get('username', user.username)
+    user.email = data.get('email', user.email)
+    
+    if data.get('username') and data.get('username') != user.username:
+        if User.query.filter_by(username=data['username']).first():
+            return jsonify(message="Username already exists"), 409
+
+    if data.get('email') and data.get('email') != user.email:
+        if User.query.filter_by(email=data['email']).first():
+            return jsonify(message="Email already exists"), 409
+    
+    db.session.commit()
+
+    return jsonify(message="User updated successfully", name=user.name, username=user.username, email=user.email), 200
+
+@app.route('/user', methods=['GET'])
+def get_user_info():
+    if 'user' not in session:
+        return jsonify(message="User not logged in"), 401
+
+    user_id = session['user']
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify(message="User not found"), 404
+
+    return jsonify(
+        id=user.id,
+        name=user.name,
+        username=user.username,
+        email=user.email
+    ), 200
+
+with app.app_context():
+  db.create_all()
 
 if __name__ == '__main__':
     app.run(debug=True)
