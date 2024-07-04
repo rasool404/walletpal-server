@@ -43,16 +43,20 @@ def login():
     user = User.query.filter_by(email=email, password=password).first()
 
     if user:
-        session['user'] = user.id  # Store user ID in session
+        session['user'] = user.id  
         return jsonify(message="Login successful", user_id=user.id, name=user.name), 200
     else:
         return jsonify(message="Invalid credentials"), 401
-
+    
+    
+# =============== Logout ===============
 @app.route('/logout', methods=['POST'])
 def logout():
     session.pop('user', None)
     return jsonify(message="Logged out successfully"), 200
 
+
+# =============== Update ===============
 @app.route('/update', methods=['PUT'])
 def update_user():
     if 'user' not in session:
@@ -64,21 +68,58 @@ def update_user():
         return jsonify(message="User not found"), 404
 
     data = request.get_json()
-    user.name = data.get('name', user.name)
-    user.username = data.get('username', user.username)
-    user.email = data.get('email', user.email)
-    
-    if data.get('username') and data.get('username') != user.username:
-        if User.query.filter_by(username=data['username']).first():
+
+    # Check if the new username is provided and not empty, otherwise keep the original
+    new_username = data.get('username')
+    if new_username is None or new_username.strip() == "":
+        new_username = user.username
+    else:
+        # Check if the new username already exists in the database
+        if new_username != user.username and User.query.filter_by(username=new_username).first():
             return jsonify(message="Username already exists"), 409
 
-    if data.get('email') and data.get('email') != user.email:
-        if User.query.filter_by(email=data['email']).first():
+    # Check if the new email is provided and not empty, otherwise keep the original
+    new_email = data.get('email')
+    if new_email is None or new_email.strip() == "":
+        new_email = user.email
+    else:
+        # Check if the new email already exists in the database
+        if new_email != user.email and User.query.filter_by(email=new_email).first():
             return jsonify(message="Email already exists"), 409
-    
-    db.session.commit()
 
-    return jsonify(message="User updated successfully", name=user.name, username=user.username, email=user.email), 200
+    # Check if the new password is provided and not empty, otherwise keep the original
+    new_password = data.get('password')
+    if new_password is None or new_password.strip() == "":
+        new_password = user.password  # Assuming passwords are stored as plain text (not recommended)
+    else:
+        # Ideally, you'd hash the new password before storing it
+        new_password = new_password  # Here, you might want to hash the password instead
+
+    # Check if the new name is provided and not empty, otherwise keep the original
+    new_name = data.get('name')
+    if new_name is None or new_name.strip() == "":
+        new_name = user.name
+
+    # Update the user information
+    user.name = new_name
+    user.username = new_username
+    user.email = new_email
+    user.password = new_password
+
+    try:
+        db.session.commit()
+        return jsonify(
+            message="User updated successfully",
+            name=user.name,
+            username=user.username,
+            email=user.email
+        ), 200
+    except Exception as e:
+        print(f"Error updating user: {e}")
+        db.session.rollback()
+        return jsonify(message="Internal server error"), 500
+
+
 
 @app.route('/user', methods=['GET'])
 def get_user_info():
@@ -96,6 +137,26 @@ def get_user_info():
         username=user.username,
         email=user.email
     ), 200
+
+@app.route('/users', methods=['GET'])
+def get_all_users():
+    try:
+        users = User.query.all()
+        
+        users_list = [
+            {
+                'id': user.id,
+                'name': user.name,
+                'username': user.username,
+                'email': user.email
+            } for user in users
+        ]
+
+        return jsonify(users=users_list), 200
+
+    except Exception as e:
+        print(f"Error fetching users: {e}")
+        return jsonify(message="Internal server error"), 500
 
 with app.app_context():
   db.create_all()
